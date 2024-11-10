@@ -60,6 +60,8 @@
   :type 'string
   :group 'gpt)
 
+(defvar gpt-writerai-model-cache nil "Cache for writerai models.")
+
 (defcustom gpt-api-type 'openai
   "The type of API to use."
   :options '(openai anthropic writerai)
@@ -338,23 +340,23 @@ PROMPT-FILE is the temporary file containing the prompt."
      ;; the `define-derived-mode` macro expects a literal as its first argument
      ;; hence, we can not simply use the `parent-mode` variable
      ;; but need to use a backquoted list and eval it
-    `(define-derived-mode gpt-mode ,parent-mode "GPT"
-      "A mode for displaying the output of GPT commands."
-      (message "GPT mode intialized with parent: %s" ',parent-mode)
-      (setq-local word-wrap t)
-      (setq-local font-lock-extra-managed-props '(invisible))
-      (if (eq ',parent-mode 'markdown-mode)
+     `(define-derived-mode gpt-mode ,parent-mode "GPT"
+        "A mode for displaying the output of GPT commands."
+        (message "GPT mode intialized with parent: %s" ',parent-mode)
+        (setq-local word-wrap t)
+        (setq-local font-lock-extra-managed-props '(invisible))
+        (if (eq ',parent-mode 'markdown-mode)
+            (progn
+              (setq markdown-fontify-code-blocks-natively t)
+              ;; Combine markdown-mode's keywords with custom keywords
+              (setq font-lock-defaults
+                    (list (append markdown-mode-font-lock-keywords gpt-font-lock-keywords))))
           (progn
-            (setq markdown-fontify-code-blocks-natively t)
-            ;; Combine markdown-mode's keywords with custom keywords
-            (setq font-lock-defaults
-                  (list (append markdown-mode-font-lock-keywords gpt-font-lock-keywords))))
-        (progn
-          (setq-local font-lock-defaults '(gpt-font-lock-keywords))
-          (font-lock-mode 1)
-          (font-lock-fontify-buffer))
-        )
-      (add-to-invisibility-spec 'gpt-prefix)))))
+            (setq-local font-lock-defaults '(gpt-font-lock-keywords))
+            (font-lock-mode 1)
+            (font-lock-fontify-buffer))
+          )
+        (add-to-invisibility-spec 'gpt-prefix)))))
 (gpt-dynamically-define-gpt-mode)
 
 (defun gpt-toggle-prefix ()
@@ -381,13 +383,39 @@ PROMPT-FILE is the temporary file containing the prompt."
         (kill-new code)
         (message "Code block copied to clipboard.")))))
 
+(defun gpt-writerai-models ()
+  "List writerai models."
+  (let ((url-request-extra-headers
+         `(("Content-Type" . "application/json")
+           ("Authorization" . ,(concat "Bearer " gpt-writerai-key)))))
+    (with-current-buffer (url-retrieve-synchronously "https://api.writer.com/v1/models")
+      (goto-char url-http-end-of-headers)
+      (delete-region (point-min) (point))
+      (save-excursion
+        (let ((json-object-type 'plist)
+              (json-array-type 'list))
+          (goto-char (point-min))
+          (json-read)))))
+  )
+
+(defun gpt-writerai-cache-and-format-models ()
+  "Cache and return writerai MODELS."
+  (if gpt-writerai-model-cache
+      gpt-writerai-model-cache
+    (setq gpt-writerai-model-cache
+          (mapcar
+           (lambda (model)
+             (cons
+              (plist-get model :name)
+              (cons 'writerai (plist-get model :id))))
+           (plist-get (gpt-writerai-models) :models)))))
+
 (defun gpt-switch-model ()
   "Switch between models."
   (interactive)
-  (let* ((models '(("GPT-4o" . (openai . "gpt-4o"))
-                   ("Claude 3.5 Sonnet" . (anthropic . "claude-3-5-sonnet-20240620"))
-                   ;; TODO fetch available models via api call
-                   ("Palmyra 4" . (writerai . "palmyra-x-004"))))
+  (let* ((models (append '(("GPT-4o" . (openai . "gpt-4o"))
+                           ("Claude 3.5 Sonnet" . (anthropic . "claude-3-5-sonnet-20240620")))
+                         (gpt-writerai-cache-and-format-models)))
          (choice (completing-read "Choose model: " (mapcar #'car models) nil t))
          (model-info (cdr (assoc choice models))))
     (setq gpt-api-type (car model-info)
