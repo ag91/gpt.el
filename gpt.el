@@ -34,8 +34,10 @@
 (defvar gpt-script-path (expand-file-name "gpt.py" (file-name-directory (or load-file-name buffer-file-name)))
   "The path to the Python script used by gpt.el.")
 
-(defvar gpt-model "gpt-4o"
-  "The model to use (e.g., 'gpt-4', 'claude-3-5-sonnet-20240620').")
+(defcustom gpt-model "gpt-4o"
+  "The model to use."
+  :type 'string
+  :group 'gpt)
 
 (defvar gpt-max-tokens "2000"
   "The max_tokens value used with the chosen model.")
@@ -43,20 +45,36 @@
 (defvar gpt-temperature "0"
   "The temperature value used with the chosen model.")
 
-(defvar gpt-openai-key "NOT SET"
-  "The OpenAI API key to use.")
+(defcustom gpt-openai-key "NOT SET"
+  "The OpenAI API key to use."
+  :type 'string
+  :group 'gpt)
 
-(defvar gpt-anthropic-key "NOT SET"
-  "The Anthropic API key to use.")
+(defcustom gpt-anthropic-key "NOT SET"
+  "The Anthropic API key to use."
+  :type 'string
+  :group 'gpt)
 
-(defvar gpt-api-type 'openai
-  "The type of API to use. Either 'openai or 'anthropic.")
+(defcustom gpt-writerai-key "NOT SET"
+  "The Writer API key to use."
+  :type 'string
+  :group 'gpt)
 
-(defvar gpt-python-path "python"
-  "The path to your python executable.")
+(defcustom gpt-api-type 'openai
+  "The type of API to use."
+  :options '(openai anthropic writerai)
+  :type 'symbol
+  :group 'gpt)
 
-(defvar gpt-use-named-buffers t
-  "If non-nil, use named buffers for GPT output. Otherwise, use temporary buffers.")
+(defcustom gpt-python-path "python"
+  "The path to your python executable."
+  :type 'string
+  :group 'gpt)
+
+(defcustom gpt-use-named-buffers t
+  "If non-nil, use named buffers for GPT output. Otherwise, use temporary buffers."
+  :type 'symbol
+  :group 'gpt)
 
 (add-to-list 'savehist-additional-variables 'gpt-command-history)
 
@@ -115,9 +133,15 @@ have the same meaning as for `completing-read'."
       (message "GPT: Running command...")
       (font-lock-fontify-buffer))))
 
+(defun gtp-get-template (gpt-api-type)
+  "Return the command template by GPT-API-TYPE."
+  (if (eq gpt-api-type 'writerai)
+      "User: %s\n "
+    "User: %s\n\nAssistant: "))
+
 (defun gpt-insert-command (command)
   "Insert COMMAND to GPT in chat format into the current buffer."
-  (let ((template "User: %s\n\nAssistant: "))
+  (let ((template (gtp-get-template gpt-api-type)))
     (insert (format template command))))
 
 (defun gpt-get-visible-buffers-content ()
@@ -145,10 +169,16 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
                   (when (use-region-p)
                     (buffer-substring-no-properties (region-beginning) (region-end))))))
     (switch-to-buffer-other-window output-buffer)
-    (when input
-      (insert (format "User:\n\n```\n%s\n```\n\n" input)))
-    (gpt-insert-command command)
-    (gpt-run-buffer output-buffer)))
+    (if (eq gpt-api-type 'writerai)
+        (if input
+            (insert (format "User:%s" (base64-encode-string (format "%s \n\n```\n%s\n```\n\n" command input))))
+          (gpt-insert-command (base64-encode-string command)))
+      (when input
+        (insert (format "User:\n\n```\n%s\n```\n\n" input)))
+      (gpt-insert-command command))
+    (gpt-run-buffer output-buffer)
+    (when (eq gpt-api-type 'writerai) (erase-buffer)) ;; to get rid of base64 stuff
+    ))
 
 (defun gpt-dwim-all-buffers ()
   "Run user-provided GPT command on all visible buffers and print output stream."
@@ -169,6 +199,15 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
 (defvar gpt-generate-buffer-name-instruction "Create a title with a maximum of 50 chars for the chat above. Say only the title, nothing else. No quotes."
   "The instruction given to GPT to generate a buffer name.")
 
+(defun gpt-get-api-key (gpt-api-type)
+  "Get the secret key  by GPT-API-TYPE."
+  (cond
+   ((eq gpt-api-type 'openai) gpt-openai-key)
+   ((eq gpt-api-type 'anthropic) gpt-anthropic-key)
+   ((eq gpt-api-type 'writerai) gpt-writerai-key)
+   (t (error "Unsupported type %s" gpt-api-type)))
+  )
+
 (defun gpt-generate-buffer-name ()
   "Update the buffer name by asking GPT to create a title for it."
   (interactive)
@@ -180,7 +219,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
     (with-temp-buffer
       (insert prompt)
       (let ((prompt-file (gpt-create-prompt-file (current-buffer)))
-            (api-key (if (eq gpt-api-type 'openai) gpt-openai-key gpt-anthropic-key))
+            (api-key (gpt-get-api-key gpt-api-type))
             (api-type-str (symbol-name gpt-api-type)))
         (erase-buffer)
         (message "Asking GPT to generate buffer name...")
@@ -207,7 +246,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
 (defun gpt-start-process (prompt-file output-buffer)
   "Start the GPT process with the given PROMPT-FILE and OUTPUT-BUFFER.
 Use `gpt-script-path' as the executable and pass the other arguments as a list."
-  (let* ((api-key (if (eq gpt-api-type 'openai) gpt-openai-key gpt-anthropic-key))
+  (let* ((api-key (gpt-get-api-key gpt-api-type))
          (api-type-str (symbol-name gpt-api-type))
          (process (start-process "gpt-process" output-buffer
                                  gpt-python-path gpt-script-path
@@ -343,10 +382,12 @@ PROMPT-FILE is the temporary file containing the prompt."
         (message "Code block copied to clipboard.")))))
 
 (defun gpt-switch-model ()
-  "Switch between OpenAI and Anthropic models."
+  "Switch between models."
   (interactive)
   (let* ((models '(("GPT-4o" . (openai . "gpt-4o"))
-                   ("Claude 3.5 Sonnet" . (anthropic . "claude-3-5-sonnet-20240620"))))
+                   ("Claude 3.5 Sonnet" . (anthropic . "claude-3-5-sonnet-20240620"))
+                   ;; TODO fetch available models via api call
+                   ("Palmyra 4" . (writerai . "palmyra-x-004"))))
          (choice (completing-read "Choose model: " (mapcar #'car models) nil t))
          (model-info (cdr (assoc choice models))))
     (setq gpt-api-type (car model-info)

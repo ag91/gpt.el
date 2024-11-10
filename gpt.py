@@ -4,6 +4,7 @@
 # License: MIT
 # SPDX-License-Identifier: MIT
 
+import base64
 import sys
 import os
 import argparse
@@ -11,10 +12,11 @@ import re
 from pathlib import Path
 from typing import Union
 
-APIType = Union["openai", "anthropic"]
+APIType = Union["openai", "anthropic", "writerai"]
 
 openai = None
 anthropic = None
+writerai = None
 
 try:
     import openai
@@ -23,6 +25,11 @@ except ImportError:
 
 try:
     import anthropic
+except ImportError:
+    pass
+
+try:
+    import writerai
 except ImportError:
     pass
 
@@ -38,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("model", help="The model to use (e.g., 'gpt-4', 'claude-3-sonnet-20240229').")
     parser.add_argument("max_tokens", help="Max tokens value to be used with the API.")
     parser.add_argument("temperature", help="Temperature value to be used with the API.")
-    parser.add_argument("api_type", type=str, choices=("openai", "anthropic"), help="The type of API to use: 'openai' or 'anthropic'.")
+    parser.add_argument("api_type", type=str, choices=("openai", "anthropic", "writerai"), help="The type of API to use: 'openai' or 'anthropic'.")
     parser.add_argument("prompt_file", help="The file that contains the prompt.")
     return parser.parse_args()
 
@@ -59,10 +66,10 @@ def stream_openai_chat_completions(
         print("Error: OpenAI API key not set.")
         print('Add (setq gpt-openai-key "sk-Aes.....AV8qzL") to your Emacs init.el file.')
         sys.exit(1)
-    
+
     client = openai.OpenAI(api_key=api_key)
 
-    messages = [{"role": "system", "content": "You are a helpful assistant."}]
+    messages = [{"role": "system", "content": "You are a helpful assistant."}] # TODO this should be editable via Emacs, probably need to change the whole way of how messages are passed to the python side, regex parsing is not ideal
     pattern = re.compile(
         r"^(User|Assistant):(.+?)(?=\n(?:User|Assistant):|\Z)", re.MULTILINE | re.DOTALL
     )
@@ -97,7 +104,7 @@ def stream_anthropic_chat_completions(
         print("Error: Anthropic API key not set.")
         print('Add (setq gpt-anthropic-key "sk-ant-api03-...") to your Emacs init.el file.')
         sys.exit(1)
-    
+
     client = anthropic.Anthropic(api_key=api_key)
 
     messages = []
@@ -113,7 +120,7 @@ def stream_anthropic_chat_completions(
     for match in matches:
         role = "user" if match.group(1).lower() == "user" else "assistant"
         content = match.group(2).strip()
-        
+
         if role == "user":
             if current_user_message is None:
                 current_user_message = content
@@ -124,7 +131,7 @@ def stream_anthropic_chat_completions(
                 messages.append({"role": "user", "content": current_user_message})
                 current_user_message = None
             messages.append({"role": "assistant", "content": content})
-    
+
     if current_user_message is not None:
         messages.append({"role": "user", "content": current_user_message})
 
@@ -141,10 +148,54 @@ def stream_anthropic_chat_completions(
 
         sys.exit(1)
 
+def stream_writerai_chat_completions(
+    prompt: str, api_key: str, model: str, max_tokens: str, temperature: str
+) -> writerai.Stream:
+    """Stream chat completions from the Writerai API."""
+    if writerai is None:
+        print("Error: Writerai Python package is not installed.")
+        print("Please install by running `pip install writerai'.")
+        sys.exit(1)
+
+    if api_key == "NOT SET":
+        print("Error: Writerai API key not set.")
+        print('Add (setq gpt-writerai-key "sk-Aes.....AV8qzL") to your Emacs init.el file.')
+        sys.exit(1)
+
+    client = writerai.Writer(api_key=api_key)
+
+    messages = [{"role": "system", "content": "You are a helpful assistant."}]
+    pattern = re.compile(
+        r"^(User|Assistant):(.+?)(?=\n(?:User|Assistant):|\Z)", re.MULTILINE | re.DOTALL
+    )
+    # print(prompt)
+
+    matches = pattern.finditer(prompt)
+    for match in matches:
+        role = match.group(1).lower()
+        content = match.group(2).strip()
+        messages.append({"role": role, "content": base64.b64decode(content).decode('utf-8')})
+
+    # print("---")
+
+    # print(messages)
+
+    try:
+        return client.chat.chat(
+            model=model,
+            messages=messages,
+            max_tokens=int(max_tokens),
+            temperature=float(temperature),
+            stream=True,
+        )
+    except writerai.APIError as error:
+        print(f"Error: {error}")
+        sys.exit(1)
+
 def print_and_collect_completions(stream, api_type: APIType) -> str:
     """Print and collect completions from the stream."""
     completion_text = ""
-    
+
     if api_type == "openai":
         for chunk in stream:
             if chunk.choices[0].delta.content is not None:
@@ -155,6 +206,13 @@ def print_and_collect_completions(stream, api_type: APIType) -> str:
         for chunk in stream:
             if chunk.type == "content_block_delta":
                 text = chunk.delta.text
+                print(text, end="", flush=True)
+                completion_text += text
+    elif api_type == "writerai":
+        for chunk in stream:
+            # print(chunk)
+            text = chunk.choices[0]["delta"]["content"]
+            if text:
                 print(text, end="", flush=True)
                 completion_text += text
     else:
@@ -184,7 +242,7 @@ def main() -> None:
     args = parse_args()
     with open(args.prompt_file, "r") as prompt_file:
         prompt = prompt_file.read()
-    
+
     if args.api_type == "openai":
         stream = stream_openai_chat_completions(
             prompt, args.api_key, args.model, args.max_tokens, args.temperature
@@ -193,10 +251,14 @@ def main() -> None:
         stream = stream_anthropic_chat_completions(
             prompt, args.api_key, args.model, args.max_tokens, args.temperature
         )
+    elif args.api_type == "writerai":
+        stream = stream_writerai_chat_completions(
+            prompt, args.api_key, args.model, args.max_tokens, args.temperature
+        )
     else:
         print(f"Error: Unsupported API type '{args.api_type}'")
         sys.exit(1)
-    
+
     completion_text = print_and_collect_completions(stream, args.api_type)
     file_name = Path.home() / ".emacs_prompts_completions.jsonl"
     write_to_jsonl(prompt, completion_text, file_name)
