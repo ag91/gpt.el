@@ -38,20 +38,32 @@ try:
 except ImportError:
     jsonlines = None
 
+
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser()
     parser.add_argument("api_key", help="The API key to use for the selected API.")
-    parser.add_argument("model", help="The model to use (e.g., 'gpt-4', 'claude-3-sonnet-20240229').")
+    parser.add_argument(
+        "model", help="The model to use (e.g., 'gpt-4', 'claude-3-sonnet-20240229')."
+    )
     parser.add_argument("max_tokens", help="Max tokens value to be used with the API.")
-    parser.add_argument("temperature", help="Temperature value to be used with the API.")
-    parser.add_argument("api_type", type=str, choices=("openai", "anthropic", "writerai"), help="The type of API to use: 'openai' or 'anthropic'.")
+    parser.add_argument(
+        "temperature", help="Temperature value to be used with the API."
+    )
+    parser.add_argument(
+        "api_type",
+        type=str,
+        choices=("openai", "anthropic", "writerai"),
+        help="The type of API to use: 'openai' or 'anthropic'.",
+    )
     parser.add_argument("prompt_file", help="The file that contains the prompt.")
     return parser.parse_args()
+
 
 def read_input_text() -> str:
     """Read input text from stdin."""
     return sys.stdin.read()
+
 
 def stream_openai_chat_completions(
     prompt: str, api_key: str, model: str, max_tokens: str, temperature: str
@@ -64,12 +76,16 @@ def stream_openai_chat_completions(
 
     if api_key == "NOT SET":
         print("Error: OpenAI API key not set.")
-        print('Add (setq gpt-openai-key "sk-Aes.....AV8qzL") to your Emacs init.el file.')
+        print(
+            'Add (setq gpt-openai-key "sk-Aes.....AV8qzL") to your Emacs init.el file.'
+        )
         sys.exit(1)
 
     client = openai.OpenAI(api_key=api_key)
 
-    messages = [{"role": "system", "content": "You are a helpful assistant."}] # TODO this should be editable via Emacs, probably need to change the whole way of how messages are passed to the python side, regex parsing is not ideal
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."}
+    ]  # TODO this should be editable via Emacs, probably need to change the whole way of how messages are passed to the python side, regex parsing is not ideal
     pattern = re.compile(
         r"^(User|Assistant):(.+?)(?=\n(?:User|Assistant):|\Z)", re.MULTILINE | re.DOTALL
     )
@@ -91,6 +107,7 @@ def stream_openai_chat_completions(
         print(f"Error: {error}")
         sys.exit(1)
 
+
 def stream_anthropic_chat_completions(
     prompt: str, api_key: str, model: str, max_tokens: str, temperature: str
 ) -> anthropic.Anthropic:
@@ -102,7 +119,9 @@ def stream_anthropic_chat_completions(
 
     if api_key == "NOT SET":
         print("Error: Anthropic API key not set.")
-        print('Add (setq gpt-anthropic-key "sk-ant-api03-...") to your Emacs init.el file.')
+        print(
+            'Add (setq gpt-anthropic-key "sk-ant-api03-...") to your Emacs init.el file.'
+        )
         sys.exit(1)
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -148,6 +167,7 @@ def stream_anthropic_chat_completions(
 
         sys.exit(1)
 
+
 def stream_writerai_chat_completions(
     prompt: str, api_key: str, model: str, max_tokens: str, temperature: str
 ) -> writerai.Stream:
@@ -159,7 +179,9 @@ def stream_writerai_chat_completions(
 
     if api_key == "NOT SET":
         print("Error: Writerai API key not set.")
-        print('Add (setq gpt-writerai-key "sk-Aes.....AV8qzL") to your Emacs init.el file.')
+        print(
+            'Add (setq gpt-writerai-key "sk-Aes.....AV8qzL") to your Emacs init.el file.'
+        )
         sys.exit(1)
 
     client = writerai.Writer(api_key=api_key)
@@ -174,7 +196,9 @@ def stream_writerai_chat_completions(
     for match in matches:
         role = match.group(1).lower()
         content = match.group(2).strip()
-        messages.append({"role": role, "content": base64.b64decode(content).decode('utf-8')})
+        messages.append(
+            {"role": role, "content": base64.b64decode(content).decode("utf-8")}
+        )
 
     # print("---")
 
@@ -191,6 +215,7 @@ def stream_writerai_chat_completions(
     except writerai.APIError as error:
         print(f"Error: {error}")
         sys.exit(1)
+
 
 def print_and_collect_completions(stream, api_type: APIType) -> str:
     """Print and collect completions from the stream."""
@@ -220,6 +245,7 @@ def print_and_collect_completions(stream, api_type: APIType) -> str:
 
     return completion_text
 
+
 def write_to_jsonl(prompt: str, completion: str, path: Path) -> None:
     """Write the prompt and completion to a jsonl file."""
     if jsonlines is None:
@@ -233,6 +259,7 @@ def write_to_jsonl(prompt: str, completion: str, path: Path) -> None:
     except IOError as error:
         print(f"Error: {error}")
         sys.exit(1)
+
 
 def main() -> None:
     """
@@ -262,6 +289,7 @@ def main() -> None:
     completion_text = print_and_collect_completions(stream, args.api_type)
     file_name = Path.home() / ".emacs_prompts_completions.jsonl"
     write_to_jsonl(prompt, completion_text, file_name)
+
 
 if __name__ == "__main__":
     main()
