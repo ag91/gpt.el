@@ -211,7 +211,7 @@ def print_and_collect_completions(stream, api_type: APIType) -> str:
     elif api_type == "writerai":
         for chunk in stream:
             # print(chunk)
-            text = chunk.choices[0]["delta"]["content"]
+            text = chunk.choices[0].delta.content
             if text:
                 print(text, end="", flush=True)
                 completion_text += text
