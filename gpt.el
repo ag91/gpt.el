@@ -78,6 +78,11 @@
   :type 'symbol
   :group 'gpt)
 
+(defcustom gpt-system-prompt "You are a helpful assistant."
+  "System prompt used for model."
+  :type 'string
+  :group 'gpt)
+
 (add-to-list 'savehist-additional-variables 'gpt-command-history)
 
 (defun gpt-display-command-history ()
@@ -122,6 +127,11 @@ have the same meaning as for `completing-read'."
     (if (string-equal cmd "n/a")
         ""
       (string-trim cmd))))
+
+(defun gpt-set-system-prompt ()
+  "Set `gpt-system-prompt'."
+  (interactive)
+  (setq gpt-system-prompt (gpt-read-command)))
 
 (defun gpt-run-buffer (buffer)
   "Run GPT command with BUFFER text as input and append output stream to output-buffer."
@@ -226,7 +236,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
         (erase-buffer)
         (message "Asking GPT to generate buffer name...")
         (call-process gpt-python-path nil t nil
-                      gpt-script-path api-key gpt-model gpt-max-tokens gpt-temperature api-type-str prompt-file)
+                      gpt-script-path api-key gpt-model gpt-max-tokens gpt-temperature api-type-str prompt-file gpt-system-prompt)
         (let ((generated-title (string-trim (buffer-string))))
           (with-current-buffer gpt-buffer
             (rename-buffer (gpt-get-output-buffer-name generated-title))))))))
@@ -253,7 +263,7 @@ Use `gpt-script-path' as the executable and pass the other arguments as a list."
          (process (start-process "gpt-process" output-buffer
                                  gpt-python-path gpt-script-path
                                  api-key gpt-model gpt-max-tokens gpt-temperature
-                                 api-type-str prompt-file)))
+                                 api-type-str prompt-file gpt-system-prompt)))
     process))
 
 (defvar gpt-buffer-counter 0

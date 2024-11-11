@@ -57,6 +57,7 @@ def parse_args() -> argparse.Namespace:
         help="The type of API to use: 'openai' or 'anthropic'.",
     )
     parser.add_argument("prompt_file", help="The file that contains the prompt.")
+    parser.add_argument("system_prompt", help="The system prompt.")
     return parser.parse_args()
 
 
@@ -66,7 +67,7 @@ def read_input_text() -> str:
 
 
 def stream_openai_chat_completions(
-    prompt: str, api_key: str, model: str, max_tokens: str, temperature: str
+        prompt: str, api_key: str, model: str, max_tokens: str, temperature: str, system_prompt: str
 ) -> openai.Stream:
     """Stream chat completions from the OpenAI API."""
     if openai is None:
@@ -84,8 +85,8 @@ def stream_openai_chat_completions(
     client = openai.OpenAI(api_key=api_key)
 
     messages = [
-        {"role": "system", "content": "You are a helpful assistant."}
-    ]  # TODO this should be editable via Emacs, probably need to change the whole way of how messages are passed to the python side, regex parsing is not ideal
+        {"role": "system", "content": system_prompt}
+    ]
     pattern = re.compile(
         r"^(User|Assistant):(.+?)(?=\n(?:User|Assistant):|\Z)", re.MULTILINE | re.DOTALL
     )
@@ -169,8 +170,12 @@ def stream_anthropic_chat_completions(
 
 
 def stream_writerai_chat_completions(
-    prompt: str, api_key: str, model: str, max_tokens: str, temperature: str
-) -> writerai.Stream:
+        prompt: str,
+        api_key: str,
+        model: str,
+        max_tokens: str,
+        temperature: str,
+        system_prompt: str) -> writerai.Stream:
     """Stream chat completions from the Writerai API."""
     if writerai is None:
         print("Error: Writerai Python package is not installed.")
@@ -186,7 +191,7 @@ def stream_writerai_chat_completions(
 
     client = writerai.Writer(api_key=api_key)
 
-    messages = [{"role": "system", "content": "You are a helpful assistant."}]
+    messages = [{"role": "system", "content": system_prompt}]
     pattern = re.compile(
         r"^(User|Assistant):(.+?)(?=\n(?:User|Assistant):|\Z)", re.MULTILINE | re.DOTALL
     )
@@ -272,7 +277,7 @@ def main() -> None:
 
     if args.api_type == "openai":
         stream = stream_openai_chat_completions(
-            prompt, args.api_key, args.model, args.max_tokens, args.temperature
+            prompt, args.api_key, args.model, args.max_tokens, args.temperature, args.system_prompt
         )
     elif args.api_type == "anthropic":
         stream = stream_anthropic_chat_completions(
@@ -280,7 +285,7 @@ def main() -> None:
         )
     elif args.api_type == "writerai":
         stream = stream_writerai_chat_completions(
-            prompt, args.api_key, args.model, args.max_tokens, args.temperature
+            prompt, args.api_key, args.model, args.max_tokens, args.temperature, args.system_prompt
         )
     else:
         print(f"Error: Unsupported API type '{args.api_type}'")
