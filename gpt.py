@@ -4,7 +4,6 @@
 # License: MIT
 # SPDX-License-Identifier: MIT
 
-import base64
 import sys
 import os
 import argparse
@@ -215,7 +214,7 @@ def stream_writerai_chat_completions(
         role = match.group(1).lower()
         content = match.group(2).strip()
         messages.append(
-            {"role": role, "content": base64.b64decode(content).decode("utf-8")}
+            {"role": role, "content": content}
         )
 
     # print("---")
@@ -223,7 +222,7 @@ def stream_writerai_chat_completions(
     # print(messages)
 
     try:
-        if False:  # graph_id is None and model == "palmyra-x-004":
+        if graph_id is None and model == "palmyra-x-004":
             chat = client.chat.chat(
                 model=model,
                 messages=messages,

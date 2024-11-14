@@ -191,16 +191,10 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
                   (when (use-region-p)
                     (buffer-substring-no-properties (region-beginning) (region-end))))))
     (switch-to-buffer-other-window output-buffer)
-    (if (eq gpt-api-type 'writerai)
-        (if input
-            (insert (format "User:%s" (base64-encode-string (format "%s \n\n```\n%s\n```\n\n" command input))))
-          (gpt-insert-command (base64-encode-string command)))
-      (when input
-        (insert (format "User:\n\n```\n%s\n```\n\n" input)))
-      (gpt-insert-command command))
-    (gpt-run-buffer output-buffer)
-    (when (eq gpt-api-type 'writerai) (erase-buffer)) ;; to get rid of base64 stuff
-    ))
+    (when input
+      (insert (format "User:\n\n```\n%s\n```\n\n" input)))
+    (gpt-insert-command command)
+    (gpt-run-buffer output-buffer)))
 
 (defun gpt-dwim-all-buffers ()
   "Run user-provided GPT command on all visible buffers and print output stream."
@@ -246,7 +240,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
         (erase-buffer)
         (message "Asking GPT to generate buffer name...")
         (call-process gpt-python-path nil t nil
-                      gpt-script-path api-key gpt-model gpt-max-tokens gpt-temperature api-type-str prompt-file gpt-system-prompt (when (eq gpt-api-type 'writerai) gpt-writerai-graph-description) (when (eq gpt-api-type 'writerai) gpt-writerai-graph-id))
+                      gpt-script-path api-key gpt-model gpt-max-tokens gpt-temperature api-type-str prompt-file gpt-system-prompt (when (eq gpt-api-type 'writerai) gpt-writerai-graph-description) (when (and (eq gpt-api-type 'writerai) gpt-writerai-graph-id (yes-or-no-p "Do you want to use your knowledge graph?")) gpt-writerai-graph-id))
         (let ((generated-title (string-trim (buffer-string))))
           (with-current-buffer gpt-buffer
             (rename-buffer (gpt-get-output-buffer-name generated-title))))))))
@@ -270,12 +264,21 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
 Use `gpt-script-path' as the executable and pass the other arguments as a list."
   (let* ((api-key (gpt-get-api-key gpt-api-type))
          (api-type-str (symbol-name gpt-api-type))
-         (process (start-process "gpt-process" output-buffer
-                                 gpt-python-path gpt-script-path
-                                 api-key gpt-model gpt-max-tokens gpt-temperature
-                                 api-type-str prompt-file gpt-system-prompt
-                                 (when (eq gpt-api-type 'writerai) gpt-writerai-graph-description)
-                                 (when (eq gpt-api-type 'writerai) gpt-writerai-graph-id))))
+         (process
+          (if (and (eq gpt-api-type 'writerai)
+                   gpt-writerai-graph-description
+                   gpt-writerai-graph-id
+                   (yes-or-no-p "Do you want to use your knowledge graph?"))
+              (start-process "gpt-process" output-buffer
+                             gpt-python-path gpt-script-path
+                             api-key gpt-model gpt-max-tokens gpt-temperature
+                             api-type-str prompt-file gpt-system-prompt
+                             gpt-writerai-graph-description
+                             gpt-writerai-graph-id)
+            (start-process "gpt-process" output-buffer
+                           gpt-python-path gpt-script-path
+                           api-key gpt-model gpt-max-tokens gpt-temperature
+                           api-type-str prompt-file gpt-system-prompt))))
     process))
 
 (defvar gpt-buffer-counter 0
