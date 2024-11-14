@@ -423,6 +423,33 @@ PROMPT-FILE is the temporary file containing the prompt."
           (json-read)))))
   )
 
+(defun gpt-writerai-graphs ()
+  "List writerai graphs."
+  (let ((url-request-extra-headers
+         `(("Content-Type" . "application/json")
+           ("Authorization" . ,(concat "Bearer " gpt-writerai-key)))))
+    (with-current-buffer (url-retrieve-synchronously "https://api.writer.com/v1/graphs")
+      (goto-char url-http-end-of-headers)
+      (delete-region (point-min) (point))
+      (save-excursion
+        (let ((json-object-type 'plist)
+              (json-array-type 'list))
+          (goto-char (point-min))
+          (json-read)))))
+  )
+
+(defun gpt-switch-writerai-graph ()
+  "Switch between models."
+  (interactive)
+  (let* ((graphs (mapcar (lambda (g) (cons (plist-get g :name) g)) (plist-get (gpt-writerai-graphs) :data)))
+         (choice (completing-read "Choose graph; " (mapcar #'car graphs) nil t))
+         (g (cdr (assoc choice graphs)))
+         (id (plist-get g :id))
+         (description (or (and (string-blank-p (plist-get g :description)) (plist-get g :description)) (plist-get g :name))))
+    (setq gpt-writerai-graph-id id
+          gpt-writerai-graph-description description)
+    (message "Switched to graph %s with description\n%s" id description)))
+
 (defun gpt-writerai-cache-and-format-models ()
   "Cache and return writerai MODELS."
   (if gpt-writerai-model-cache
