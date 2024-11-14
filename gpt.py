@@ -10,7 +10,7 @@ import os
 import argparse
 import re
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 APIType = Union["openai", "anthropic", "writerai"]
 
@@ -58,6 +58,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("prompt_file", help="The file that contains the prompt.")
     parser.add_argument("system_prompt", help="The system prompt.")
+    parser.add_argument(
+        "graph_description",
+        nargs="?",
+        const=None,
+        help="The description for the graph.",
+    )
+    parser.add_argument("graph_id", nargs="?", const=None, help="A graph id.")
     return parser.parse_args()
 
 
@@ -67,7 +74,12 @@ def read_input_text() -> str:
 
 
 def stream_openai_chat_completions(
-        prompt: str, api_key: str, model: str, max_tokens: str, temperature: str, system_prompt: str
+    prompt: str,
+    api_key: str,
+    model: str,
+    max_tokens: str,
+    temperature: str,
+    system_prompt: str,
 ) -> openai.Stream:
     """Stream chat completions from the OpenAI API."""
     if openai is None:
@@ -84,9 +96,7 @@ def stream_openai_chat_completions(
 
     client = openai.OpenAI(api_key=api_key)
 
-    messages = [
-        {"role": "system", "content": system_prompt}
-    ]
+    messages = [{"role": "system", "content": system_prompt}]
     pattern = re.compile(
         r"^(User|Assistant):(.+?)(?=\n(?:User|Assistant):|\Z)", re.MULTILINE | re.DOTALL
     )
@@ -170,12 +180,15 @@ def stream_anthropic_chat_completions(
 
 
 def stream_writerai_chat_completions(
-        prompt: str,
-        api_key: str,
-        model: str,
-        max_tokens: str,
-        temperature: str,
-        system_prompt: str) -> writerai.Stream:
+    prompt: str,
+    api_key: str,
+    model: str,
+    max_tokens: str,
+    temperature: str,
+    system_prompt: str,
+    graph_description: Optional[str],
+    graph_id: Optional[str],
+) -> writerai.Stream:
     """Stream chat completions from the Writerai API."""
     if writerai is None:
         print("Error: Writerai Python package is not installed.")
@@ -210,13 +223,36 @@ def stream_writerai_chat_completions(
     # print(messages)
 
     try:
-        return client.chat.chat(
-            model=model,
-            messages=messages,
-            max_tokens=int(max_tokens),
-            temperature=float(temperature),
-            stream=True,
-        )
+        if False:  # graph_id is None and model == "palmyra-x-004":
+            chat = client.chat.chat(
+                model=model,
+                messages=messages,
+                max_tokens=int(max_tokens),
+                temperature=float(temperature),
+                stream=True,
+            )
+        else:
+            tools = [
+                {
+                    "type": "graph",
+                    "function": {
+                        "description": graph_description
+                        or "a graph with relevant information",
+                        "graph_ids": [graph_id],
+                        "subqueries": False,
+                    },
+                }
+            ]
+            chat = client.chat.chat(
+                model=model,
+                messages=messages,
+                max_tokens=int(max_tokens),
+                temperature=float(temperature),
+                stream=True,
+                tool_choice="auto",
+                tools=tools,
+            )
+        return chat
     except writerai.APIError as error:
         print(f"Error: {error}")
         sys.exit(1)
@@ -277,7 +313,12 @@ def main() -> None:
 
     if args.api_type == "openai":
         stream = stream_openai_chat_completions(
-            prompt, args.api_key, args.model, args.max_tokens, args.temperature, args.system_prompt
+            prompt,
+            args.api_key,
+            args.model,
+            args.max_tokens,
+            args.temperature,
+            args.system_prompt,
         )
     elif args.api_type == "anthropic":
         stream = stream_anthropic_chat_completions(
@@ -285,7 +326,14 @@ def main() -> None:
         )
     elif args.api_type == "writerai":
         stream = stream_writerai_chat_completions(
-            prompt, args.api_key, args.model, args.max_tokens, args.temperature, args.system_prompt
+            prompt,
+            args.api_key,
+            args.model,
+            args.max_tokens,
+            args.temperature,
+            args.system_prompt,
+            args.graph_description,
+            args.graph_id,
         )
     else:
         print(f"Error: Unsupported API type '{args.api_type}'")

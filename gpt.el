@@ -60,6 +60,16 @@
   :type 'string
   :group 'gpt)
 
+(defcustom gpt-writerai-graph-id nil
+  "A Writer knowledge graph identifier."
+  :type 'string
+  :group 'gpt)
+
+(defcustom gpt-writerai-graph-description nil
+  "The description of `gpt-writerai-graph-id'."
+  :type 'string
+  :group 'gpt)
+
 (defvar gpt-writerai-model-cache nil "Cache for writerai models.")
 
 (defcustom gpt-api-type 'openai
@@ -236,7 +246,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
         (erase-buffer)
         (message "Asking GPT to generate buffer name...")
         (call-process gpt-python-path nil t nil
-                      gpt-script-path api-key gpt-model gpt-max-tokens gpt-temperature api-type-str prompt-file gpt-system-prompt)
+                      gpt-script-path api-key gpt-model gpt-max-tokens gpt-temperature api-type-str prompt-file gpt-system-prompt (when (eq gpt-api-type 'writerai) gpt-writerai-graph-description) (when (eq gpt-api-type 'writerai) gpt-writerai-graph-id))
         (let ((generated-title (string-trim (buffer-string))))
           (with-current-buffer gpt-buffer
             (rename-buffer (gpt-get-output-buffer-name generated-title))))))))
@@ -263,7 +273,9 @@ Use `gpt-script-path' as the executable and pass the other arguments as a list."
          (process (start-process "gpt-process" output-buffer
                                  gpt-python-path gpt-script-path
                                  api-key gpt-model gpt-max-tokens gpt-temperature
-                                 api-type-str prompt-file gpt-system-prompt)))
+                                 api-type-str prompt-file gpt-system-prompt
+                                 (when (eq gpt-api-type 'writerai) gpt-writerai-graph-description)
+                                 (when (eq gpt-api-type 'writerai) gpt-writerai-graph-id))))
     process))
 
 (defvar gpt-buffer-counter 0
