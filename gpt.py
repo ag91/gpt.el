@@ -222,15 +222,7 @@ def stream_writerai_chat_completions(
     # print(messages)
 
     try:
-        if graph_id is None and model == "palmyra-x-004":
-            chat = client.chat.chat(
-                model=model,
-                messages=messages,
-                max_tokens=int(max_tokens),
-                temperature=float(temperature),
-                stream=True,
-            )
-        else:
+        if graph_id is not None and model == "palmyra-x-004":
             tools = [
                 {
                     "type": "graph",
@@ -250,6 +242,14 @@ def stream_writerai_chat_completions(
                 stream=True,
                 tool_choice="auto",
                 tools=tools,
+            )
+        else:
+            chat = client.chat.chat(
+                model=model,
+                messages=messages,
+                max_tokens=int(max_tokens),
+                temperature=float(temperature),
+                stream=True,
             )
         return chat
     except writerai.APIError as error:
