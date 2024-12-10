@@ -60,13 +60,13 @@
   :type 'string
   :group 'gpt)
 
-(defcustom gpt-writerai-graph-id nil
-  "A Writer knowledge graph identifier."
-  :type 'string
+(defcustom gpt-writerai-graph-ids nil
+  "A list of Writer knowledge graph identifiers."
+  :type 'list
   :group 'gpt)
 
-(defcustom gpt-writerai-graph-description nil
-  "The description of `gpt-writerai-graph-id'."
+(defcustom gpt-writerai-graphs-description nil
+  "The description of `gpt-writerai-graph-ids'."
   :type 'string
   :group 'gpt)
 
@@ -240,7 +240,18 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
         (erase-buffer)
         (message "Asking GPT to generate buffer name...")
         (call-process gpt-python-path nil t nil
-                      gpt-script-path api-key gpt-model gpt-max-tokens gpt-temperature api-type-str prompt-file gpt-system-prompt (when (eq gpt-api-type 'writerai) gpt-writerai-graph-description) (when (and (eq gpt-api-type 'writerai) gpt-writerai-graph-id (yes-or-no-p "Do you want to use your knowledge graph?")) gpt-writerai-graph-id))
+                      gpt-script-path
+                      api-key gpt-model
+                      gpt-max-tokens
+                      gpt-temperature
+                      api-type-str
+                      prompt-file
+                      gpt-system-prompt
+                      (when (eq gpt-api-type 'writerai) gpt-writerai-graphs-description)
+                      (when (and (eq gpt-api-type 'writerai)
+                                 gpt-writerai-graph-ids
+                                 (yes-or-no-p "Do you want to use your knowledge graph?"))
+                        (format "[%s]" (string-join (mapcar (lambda (g) (format "%S" g)) gpt-writerai-graph-ids) ","))))
         (let ((generated-title (string-trim (buffer-string))))
           (with-current-buffer gpt-buffer
             (rename-buffer (gpt-get-output-buffer-name generated-title))))))))
@@ -266,15 +277,15 @@ Use `gpt-script-path' as the executable and pass the other arguments as a list."
          (api-type-str (symbol-name gpt-api-type))
          (process
           (if (and (eq gpt-api-type 'writerai)
-                   gpt-writerai-graph-description
-                   gpt-writerai-graph-id
+                   gpt-writerai-graphs-description
+                   gpt-writerai-graph-ids
                    (yes-or-no-p "Do you want to use your knowledge graph?"))
               (start-process "gpt-process" output-buffer
                              gpt-python-path gpt-script-path
                              api-key gpt-model gpt-max-tokens gpt-temperature
                              api-type-str prompt-file gpt-system-prompt
-                             gpt-writerai-graph-description
-                             gpt-writerai-graph-id)
+                             gpt-writerai-graphs-description
+                             (format "[%s]" (string-join (mapcar (lambda (g) (format "%S" g)) gpt-writerai-graph-ids) ",")))
             (start-process "gpt-process" output-buffer
                            gpt-python-path gpt-script-path
                            api-key gpt-model gpt-max-tokens gpt-temperature
@@ -442,13 +453,19 @@ PROMPT-FILE is the temporary file containing the prompt."
   "Switch between models."
   (interactive)
   (let* ((graphs (mapcar (lambda (g) (cons (plist-get g :name) g)) (plist-get (gpt-writerai-graphs) :data)))
-         (choice (completing-read "Choose graph; " (mapcar #'car graphs) nil t))
-         (g (cdr (assoc choice graphs)))
-         (id (plist-get g :id))
-         (description (or (and (string-blank-p (plist-get g :description)) (plist-get g :description)) (plist-get g :name))))
-    (setq gpt-writerai-graph-id id
-          gpt-writerai-graph-description description)
-    (message "Switched to graph %s with description\n%s" id description)))
+         (choices (completing-read-multiple "Choose graphs; " (mapcar #'car graphs) nil t))
+         (gs (mapcar (lambda (choice) (cdr (assoc choice graphs))) choices))
+         (ids (mapcar (lambda (g) (plist-get g :id)) gs))
+         (description (string-join
+                       (mapcar
+                        (lambda (g) (or
+                                     (and (not (string-blank-p (plist-get g :description))) (plist-get g :description))
+                                     (plist-get g :name)))
+                        gs)
+                       " and ")))
+    (setq gpt-writerai-graph-ids ids
+          gpt-writerai-graphs-description description)
+    (message "Switched to graphs %s with description\n%s" ids description)))
 
 (defun gpt-writerai-cache-and-format-models ()
   "Cache and return writerai MODELS."

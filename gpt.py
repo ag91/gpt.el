@@ -9,7 +9,8 @@ import os
 import argparse
 import re
 from pathlib import Path
-from typing import Union, Optional
+from typing import Union, Optional, List
+import json
 
 APIType = Union["openai", "anthropic", "writerai"]
 
@@ -53,17 +54,17 @@ def parse_args() -> argparse.Namespace:
         "api_type",
         type=str,
         choices=("openai", "anthropic", "writerai"),
-        help="The type of API to use: 'openai' or 'anthropic'.",
+        help="The type of API to use: 'openai' or 'anthropic' or 'writerai.",
     )
     parser.add_argument("prompt_file", help="The file that contains the prompt.")
     parser.add_argument("system_prompt", help="The system prompt.")
     parser.add_argument(
-        "graph_description",
+        "graphs_description",
         nargs="?",
         const=None,
-        help="The description for the graph.",
+        help="The description for the graphs.",
     )
-    parser.add_argument("graph_id", nargs="?", const=None, help="A graph id.")
+    parser.add_argument("graph_ids", nargs="?", const=None, help="Graph ids.", type=json.loads)
     return parser.parse_args()
 
 
@@ -185,8 +186,8 @@ def stream_writerai_chat_completions(
     max_tokens: str,
     temperature: str,
     system_prompt: str,
-    graph_description: Optional[str],
-    graph_id: Optional[str],
+    graphs_description: Optional[str],
+    graph_ids: Optional[List[str]],
 ) -> writerai.Stream:
     """Stream chat completions from the Writerai API."""
     if writerai is None:
@@ -222,14 +223,14 @@ def stream_writerai_chat_completions(
     # print(messages)
 
     try:
-        if graph_id is not None and model == "palmyra-x-004":
+        if graph_ids is not None and model == "palmyra-x-004":
             tools = [
                 {
                     "type": "graph",
                     "function": {
-                        "description": graph_description
+                        "description": graphs_description
                         or "a graph with relevant information",
-                        "graph_ids": [graph_id],
+                        "graph_ids": graph_ids,
                         "subqueries": False,
                     },
                 }
@@ -331,8 +332,8 @@ def main() -> None:
             args.max_tokens,
             args.temperature,
             args.system_prompt,
-            args.graph_description,
-            args.graph_id,
+            args.graphs_description,
+            args.graph_ids,
         )
     else:
         print(f"Error: Unsupported API type '{args.api_type}'")
