@@ -72,6 +72,8 @@
 
 (defvar gpt-writerai-model-cache nil "Cache for writerai models.")
 
+(defvar gpt-openai-model-cache nil "Cache for openai models.")
+
 (defcustom gpt-api-type 'openai
   "The type of API to use."
   :options '(openai anthropic writerai)
@@ -434,6 +436,21 @@ PROMPT-FILE is the temporary file containing the prompt."
           (json-read)))))
   )
 
+(defun gpt-openai-models ()
+  "List openai models."
+  (let ((url-request-extra-headers
+         `(("Content-Type" . "application/json")
+           ("Authorization" . ,(concat "Bearer " gpt-openai-key)))))
+    (with-current-buffer (url-retrieve-synchronously "https://api.openai.com/v1/models")
+      (goto-char url-http-end-of-headers)
+      (delete-region (point-min) (point))
+      (save-excursion
+        (let ((json-object-type 'plist)
+              (json-array-type 'list))
+          (goto-char (point-min))
+          (json-read))))))
+
+
 (defun gpt-writerai-graphs ()
   "List writerai graphs."
   (let ((url-request-extra-headers
@@ -448,6 +465,18 @@ PROMPT-FILE is the temporary file containing the prompt."
           (goto-char (point-min))
           (json-read)))))
   )
+
+(defun gpt-openai-cache-and-format-models ()
+  "Cache and return writerai MODELS."
+  (if gpt-openai-model-cache
+      gpt-openai-model-cache
+    (setq gpt-openai-model-cache
+          (mapcar
+           (lambda (model)
+             (cons
+              (upcase (plist-get model :id))
+              (cons 'openai (plist-get model :id))))
+           (plist-get (gpt-openai-models) :data)))))
 
 (defun gpt-switch-writerai-graph ()
   "Switch between models."
@@ -482,9 +511,11 @@ PROMPT-FILE is the temporary file containing the prompt."
 (defun gpt-switch-model ()
   "Switch between models."
   (interactive)
-  (let* ((models (append '(("GPT-4o" . (openai . "gpt-4o"))
-                           ("Claude 3.5 Sonnet" . (anthropic . "claude-3-5-sonnet-20240620")))
-                         (gpt-writerai-cache-and-format-models)))
+  (let* ((models (append
+                  (gpt-openai-cache-and-format-models)
+                  (gpt-writerai-cache-and-format-models)
+                  '(("Claude 3.5 Sonnet" . (anthropic . "claude-3-5-sonnet-20240620")))
+                  ))
          (choice (completing-read "Choose model: " (mapcar #'car models) nil t))
          (model-info (cdr (assoc choice models))))
     (setq gpt-api-type (car model-info)
