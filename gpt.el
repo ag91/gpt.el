@@ -181,6 +181,21 @@ have the same meaning as for `completing-read'."
               contents)))
     (mapconcat 'identity (nreverse contents) "\n\n")))
 
+(defun gpt-get-visible-buffers-regions ()
+  "Get the content, buffer name, and file name (if available) of all currently visible buffers regions.
+This can facilitate diff between similar files, for example."
+  (let ((visible-buffers (mapcar 'window-buffer (window-list)))
+        contents)
+    (dolist (buffer visible-buffers contents)
+      (with-current-buffer buffer
+        (when (use-region-p)
+          (push (format "Buffer Name: %s\nFile Name: %s\nContent:\n%s"
+                        (buffer-name)
+                        (or (buffer-file-name) "N/A")
+                        (buffer-substring-no-properties (region-beginning) (region-end)))
+                contents))))
+    (mapconcat 'identity (nreverse contents) "\n\n")))
+
 (defun gpt-dwim (&optional all-buffers)
   "Run user-provided GPT command on region or all visible buffers and print output stream.
 If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible buffers as input. Otherwise, use the current region."
@@ -191,7 +206,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
          (input (if all-buffers
                     (gpt-get-visible-buffers-content)
                   (when (use-region-p)
-                    (buffer-substring-no-properties (region-beginning) (region-end))))))
+                    (gpt-get-visible-buffers-regions)))))
     (switch-to-buffer-other-window output-buffer)
     (when input
       (insert (format "User:\n\n```\n%s\n```\n\n" input)))
