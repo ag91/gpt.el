@@ -25,6 +25,8 @@
 ;; export the command history to a file.
 
 (require 'savehist)
+(require 'dash)
+(require 'cl-lib) ;; TODO just for cl--plist-to-alist
 
 (savehist-mode 1)
 
@@ -145,13 +147,13 @@ have the same meaning as for `completing-read'."
   (interactive)
   (setq gpt-system-prompt (gpt-read-command)))
 
-(defun gpt-run-buffer (buffer)
+(defun gpt-run-buffer (buffer &optional writer-app-id writer-app-inputs)
   "Run GPT command with BUFFER text as input and append output stream to output-buffer."
   (with-current-buffer buffer
     (goto-char (point-max))
     (font-lock-fontify-buffer)
     (let* ((prompt-file (gpt-create-prompt-file buffer))
-           (process (gpt-start-process prompt-file buffer))
+           (process (gpt-start-process prompt-file buffer writer-app-id writer-app-inputs))
            (timer (gpt-start-timer process)))
       (gpt-set-process-sentinel process timer prompt-file)
       (message "GPT: Running command...")
@@ -287,7 +289,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
     (message "GPT: Prompt written to %s" temp-file)
     temp-file))
 
-(defun gpt-start-process (prompt-file output-buffer)
+(defun gpt-start-process (prompt-file output-buffer &optional writer-app-id writer-app-inputs)
   "Start the GPT process with the given PROMPT-FILE and OUTPUT-BUFFER.
 Use `gpt-script-path' as the executable and pass the other arguments as a list."
   (let* ((api-key (gpt-get-api-key gpt-api-type))
@@ -302,11 +304,16 @@ Use `gpt-script-path' as the executable and pass the other arguments as a list."
                              api-key gpt-model gpt-max-tokens gpt-temperature
                              api-type-str prompt-file gpt-system-prompt
                              gpt-writerai-graphs-description
-                             (format "[%s]" (string-join (mapcar (lambda (g) (format "%S" g)) gpt-writerai-graph-ids) ",")))
+                             (json-encode gpt-writerai-graph-ids)
+                             (if writer-app-id writer-app-id "None")
+                             (if writer-app-inputs (json-encode (-map 'cl--plist-to-alist writer-app-inputs)) "None"))
             (start-process "gpt-process" output-buffer
                            gpt-python-path gpt-script-path
                            api-key gpt-model gpt-max-tokens gpt-temperature
-                           api-type-str prompt-file gpt-system-prompt))))
+                           api-type-str prompt-file gpt-system-prompt
+                           "None" "None"
+                           (if writer-app-id writer-app-id "None")
+                           (if writer-app-inputs (json-encode (-map 'cl--plist-to-alist writer-app-inputs)) "None")))))
     process))
 
 (defvar gpt-buffer-counter 0
@@ -480,6 +487,118 @@ PROMPT-FILE is the temporary file containing the prompt."
           (goto-char (point-min))
           (json-read)))))
   )
+
+(defun gpt-writer-app-list ()
+  (plist-get
+   (let ((url-request-extra-headers
+          `(("Content-Type" . "application/json")
+            ("Authorization" . ,(concat "Bearer " gpt-writerai-key)))))
+     (with-current-buffer (url-retrieve-synchronously "https://api.writer.com/v1/applications?limit=100")
+       (goto-char url-http-end-of-headers)
+       (delete-region (point-min) (point))
+       (save-excursion
+         (let ((json-object-type 'plist)
+               (json-array-type 'list))
+           (goto-char (point-min))
+           (json-read)))))
+   :data))
+
+(defun gpt-writer-app-select ()
+  (--> (gpt-writer-app-list)
+       (let ((candidates (--map `(,(format "[%s] %s %s" (plist-get it :type) (plist-get it :name) (plist-get it :inputs)) ,it) it)))
+         (assoc (completing-read "Select app" candidates) candidates 'equal))
+       (nth 1 it)
+       ))
+
+(defun gpt-app-dwim (&optional all-buffers app-id)
+  "Run user-provided GPT command on region or all visible buffers and print output stream.
+If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible buffers as input. Otherwise, use the current region."
+  (interactive "P")
+  (let* ((initial-buffer (current-buffer))
+         (app (gpt-writer-app-select))
+         (extra-input
+          (format "```\n%s\n```\n\n" (if all-buffers
+                                         (gpt-get-visible-buffers-content)
+                                       (when (use-region-p)
+                                         (gpt-get-visible-buffers-regions))))
+          )
+         (inputs (if (equal (plist-get app :type) "research") ;; TODO until I  research apps are fixed
+                     (list
+                      (list :id "Query" :value (list (concat
+                                                      extra-input
+                                                      (gpt-read-command)))))
+                   (progn
+                     (error "No code apps not supported yet because of lack of streaming!") ;; TODO
+                     (--map
+                      (list
+                       :id
+                       (plist-get it :name)
+                       :value
+                       (list
+                        (read-string (format
+                                      "%s[%s] %s -- %s:"
+                                      (if (equal t (plist-get it :required)) "*" "")
+                                      (plist-get it :input_type)
+                                      (plist-get it :name)
+                                      (plist-get it :description)))))
+                      (plist-get app :inputs)))))
+         (command "")
+         (output-buffer (gpt-create-output-buffer command)))
+    (switch-to-buffer-other-window output-buffer)
+    (gpt-insert-command command)
+    (gpt-run-buffer output-buffer (plist-get app :id) inputs) ;; TODO totally unclear how this should work for apps: I would preferably pass a json and let the python sdk do its thing, but it may backfire because who knows what format they use for v1/application
+    ))
+
+(defun gpt-writerai-files ()
+  "List files available on writer.com. Only first 200"
+  (let ((url-request-extra-headers
+         `(("Content-Type" . "application/json")
+           ("Authorization" . ,(concat "Bearer " gpt-writerai-key)))))
+    (with-current-buffer (url-retrieve-synchronously "https://api.writer.com/v1/files?limit=100") ;; TODO exhaust pagination
+      (goto-char url-http-end-of-headers)
+      (delete-region (point-min) (point))
+      (plist-get
+       (save-excursion
+         (let ((json-object-type 'plist)
+               (json-array-type 'list))
+           (goto-char (point-min))
+           (json-read)))
+       :data))))
+
+(defun gpt-writerai-upload-file (file)
+  "Upload FILE with CONTENT-TYPE to writer.com."
+  (interactive
+   (list
+    (read-file-name "File to upload:")))
+  (async-shell-command
+   (format
+    "curl -i -X POST -H 'Content-Type: %s' -H 'Content-Disposition: attachment; filename=\"%s\"' -H 'Authorization: Bearer %s' --data-binary @%s https://api.writer.com/v1/files"
+    "application/octet-stream" ;; to simplify this function
+    (file-name-nondirectory file)
+    gpt-writerai-key
+    file)
+   (get-buffer-create (format "*gpt-writerai-upload-file: %s*" file))))
+
+(defun gpt-writerai-delete-file (file-id)
+  "Upload FILE with CONTENT-TYPE to writer.com."
+  (interactive
+   (list
+    (let ((a (mapcar
+              (lambda (it)
+                (cons (format "Name: %s status: %s graph-ids: %s"
+                              (plist-get it :name)
+                              (plist-get it :status)
+                              (plist-get it :graph_ids))
+                      (plist-get it :id)
+                      ))
+              (gpt-writerai-files))))
+      (alist-get (completing-read "File to delete:" a) a nil nil 'equal))))
+  (let ((url-request-method "DELETE")
+        (url-request-extra-headers
+         `(("Content-Type" . "application/json")
+           ("Authorization" . ,(concat "Bearer " gpt-writerai-key)))))
+    (with-current-buffer (url-retrieve-synchronously (format "https://api.writer.com/v1/files/%s" file-id)))))
+
 
 (defun gpt-openai-cache-and-format-models ()
   "Cache and return writerai MODELS."

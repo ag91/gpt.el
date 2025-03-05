@@ -38,6 +38,16 @@ try:
 except ImportError:
     jsonlines = None
 
+def none_or_str(value):
+    if value == 'None':
+        return None
+    return value
+
+def none_or_json(value):
+    if value == 'None':
+        return None
+    return json.loads(value)
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -60,11 +70,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("system_prompt", help="The system prompt.")
     parser.add_argument(
         "graphs_description",
+        type=none_or_str,
         nargs="?",
         const=None,
         help="The description for the graphs.",
     )
-    parser.add_argument("graph_ids", nargs="?", const=None, help="Graph ids.", type=json.loads)
+    parser.add_argument("graph_ids", nargs="?", const=None, help="Graph ids.", type=none_or_json)
+    parser.add_argument(
+        "application_id",
+        nargs="?",
+        const=None,
+        type=none_or_str,
+        help="The 'writerai application identifier.",
+    )
+    parser.add_argument("inputs", nargs="?", const=None, help="Json input for application.", type=none_or_json)
     return parser.parse_args()
 
 
@@ -178,6 +197,35 @@ def stream_anthropic_chat_completions(
 
         sys.exit(1)
 
+def stream_writerai_app_completions(
+    application_id: str,
+    inputs: dict,
+    api_key: str,
+) -> writerai.Stream:
+    """Stream chat completions from the Writerai API."""
+    if writerai is None:
+        print("Error: Writerai Python package is not installed.")
+        print("Please install by running `pip install writerai'.")
+        sys.exit(1)
+
+    if api_key == "NOT SET":
+        print("Error: Writerai API key not set.")
+        print(
+            'Add (setq gpt-writerai-key "sk-Aes.....AV8qzL") to your Emacs init.el file.'
+        )
+        sys.exit(1)
+
+    client = writerai.Writer(api_key=api_key)
+
+    try:
+        return client.applications.generate_content(
+            application_id=application_id,
+            inputs=inputs,
+            stream=True
+        )
+    except writerai.APIError as error:
+        print(f"Error: {error}")
+        sys.exit(1)
 
 def stream_writerai_chat_completions(
     prompt: str,
@@ -261,7 +309,6 @@ def stream_writerai_chat_completions(
 def print_and_collect_completions(stream, api_type: APIType) -> str:
     """Print and collect completions from the stream."""
     completion_text = ""
-
     if api_type == "openai":
         for chunk in stream:
             if chunk.choices[0].delta.content is not None:
@@ -277,7 +324,10 @@ def print_and_collect_completions(stream, api_type: APIType) -> str:
     elif api_type == "writerai":
         for chunk in stream:
             # print(chunk)
-            text = chunk.choices[0].delta.content
+            try:
+                text = chunk.choices[0].delta.content
+            except:
+                text = chunk.delta.content
             if text:
                 print(text, end="", flush=True)
                 completion_text += text
@@ -325,16 +375,23 @@ def main() -> None:
             prompt, args.api_key, args.model, args.max_tokens, args.temperature
         )
     elif args.api_type == "writerai":
-        stream = stream_writerai_chat_completions(
-            prompt,
-            args.api_key,
-            args.model,
-            args.max_tokens,
-            args.temperature,
-            args.system_prompt,
-            args.graphs_description,
-            args.graph_ids,
-        )
+        if args.application_id is None:
+            stream = stream_writerai_chat_completions(
+                prompt,
+                args.api_key,
+                args.model,
+                args.max_tokens,
+                args.temperature,
+                args.system_prompt,
+                args.graphs_description,
+                args.graph_ids,
+            )
+        else:
+            stream = stream_writerai_app_completions(
+                args.application_id,
+                args.inputs,
+                args.api_key
+            )
     else:
         print(f"Error: Unsupported API type '{args.api_type}'")
         sys.exit(1)
