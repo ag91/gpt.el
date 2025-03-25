@@ -550,7 +550,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
     ))
 
 (defun gpt-writerai-files ()
-  "List files available on writer.com. Only first 200"
+  "List files available on writer.com. Only first 200."
   (let ((url-request-extra-headers
          `(("Content-Type" . "application/json")
            ("Authorization" . ,(concat "Bearer " gpt-writerai-key)))))
@@ -564,6 +564,20 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
            (goto-char (point-min))
            (json-read)))
        :data))))
+
+(defun gpt-writerai-kill-file-id ()
+  "Grab id of file available on writer.com. Only first 200."
+  (interactive)
+  (kill-new (let ((a (mapcar
+                      (lambda (it)
+                        (cons (format "Name: %s status: %s graph-ids: %s"
+                                      (plist-get it :name)
+                                      (plist-get it :status)
+                                      (plist-get it :graph_ids))
+                              (plist-get it :id)
+                              ))
+                      (gpt-writerai-files))))
+              (alist-get (completing-read "File id to copy:" a) a nil nil 'equal))))
 
 (defun gpt-writerai-upload-file (file)
   "Upload FILE with CONTENT-TYPE to writer.com."
@@ -611,6 +625,19 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
               (upcase (plist-get model :id))
               (cons 'openai (plist-get model :id))))
            (plist-get (gpt-openai-models) :data)))))
+
+(defun gpt-writerai-kill-graph-id ()
+  "Grab id of file available on writer.com. Only first 200."
+  (interactive)
+  (kill-new (let ((a (mapcar
+                      (lambda (it)
+                        (cons (format "Name: %s description: %s"
+                                      (plist-get it :name)
+                                      (plist-get it :description))
+                              (plist-get it :id)
+                              ))
+                      (plist-get (gpt-writerai-graphs) :data))))
+              (alist-get (completing-read "Graph id to copy:" a) a nil nil 'equal))))
 
 (defun gpt-switch-writerai-graph ()
   "Switch between models."
