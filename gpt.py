@@ -76,6 +76,7 @@ def parse_args() -> argparse.Namespace:
         help="The description for the graphs.",
     )
     parser.add_argument("graph_ids", nargs="?", const=None, help="Graph ids.", type=none_or_json)
+    parser.add_argument("image_ids", nargs="?", const=None, help="Image ids.", type=none_or_json)
     parser.add_argument(
         "application_id",
         nargs="?",
@@ -236,6 +237,7 @@ def stream_writerai_chat_completions(
     system_prompt: str,
     graphs_description: Optional[str],
     graph_ids: Optional[List[str]],
+    image_ids: Optional[List[str]],
 ) -> writerai.Stream:
     """Stream chat completions from the Writerai API."""
     if writerai is None:
@@ -271,8 +273,9 @@ def stream_writerai_chat_completions(
     # print(messages)
 
     try:
-        if graph_ids is not None and model == "palmyra-x-004":
-            tools = [
+        tools = []
+        if graph_ids is not None and model.startswith("palmyra-x"):
+            tools.append(
                 {
                     "type": "graph",
                     "function": {
@@ -281,25 +284,26 @@ def stream_writerai_chat_completions(
                         "graph_ids": graph_ids,
                         "subqueries": False,
                     },
-                }
-            ]
-            chat = client.chat.chat(
-                model=model,
-                messages=messages,
-                max_tokens=int(max_tokens),
-                temperature=float(temperature),
-                stream=True,
-                tool_choice="auto",
-                tools=tools,
-            )
-        else:
-            chat = client.chat.chat(
-                model=model,
-                messages=messages,
-                max_tokens=int(max_tokens),
-                temperature=float(temperature),
-                stream=True,
-            )
+                })
+        if image_ids is not None and model.startswith("palmyra-x"):
+            tools.append(
+                {
+                    "type": "vision",
+                    "function": {
+                        "model": "palmyra-vision",
+                        "variables": [{'name': str(i), 'file_id': id}
+                                      for i, id in enumerate(image_ids)]
+                    },
+                })
+        chat = client.chat.chat(
+            model=model,
+            messages=messages,
+            max_tokens=int(max_tokens),
+            temperature=float(temperature),
+            stream=True,
+            tool_choice="auto" if tools else None,
+            tools=tools if tools else None,
+        )
         return chat
     except writerai.APIError as error:
         print(f"Error: {error}")
@@ -385,6 +389,7 @@ def main() -> None:
                 args.system_prompt,
                 args.graphs_description,
                 args.graph_ids,
+                args.image_ids,
             )
         else:
             stream = stream_writerai_app_completions(

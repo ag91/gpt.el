@@ -72,6 +72,11 @@
   :type 'string
   :group 'gpt)
 
+(defcustom gpt-writerai-image-ids nil
+  "A list of Writer image ids."
+  :type 'list
+  :group 'gpt)
+
 (defvar gpt-writerai-model-cache nil "Cache for writerai models.")
 
 (defvar gpt-openai-model-cache nil "Cache for openai models.")
@@ -295,25 +300,15 @@ Use `gpt-script-path' as the executable and pass the other arguments as a list."
   (let* ((api-key (gpt-get-api-key gpt-api-type))
          (api-type-str (symbol-name gpt-api-type))
          (process
-          (if (and (eq gpt-api-type 'writerai)
-                   gpt-writerai-graphs-description
-                   gpt-writerai-graph-ids
-                   (yes-or-no-p "Do you want to use your knowledge graph?"))
-              (start-process "gpt-process" output-buffer
-                             gpt-python-path gpt-script-path
-                             api-key gpt-model gpt-max-tokens gpt-temperature
-                             api-type-str prompt-file gpt-system-prompt
-                             gpt-writerai-graphs-description
-                             (json-encode gpt-writerai-graph-ids)
-                             (if writer-app-id writer-app-id "None")
-                             (if writer-app-inputs (json-encode (-map 'cl--plist-to-alist writer-app-inputs)) "None"))
-            (start-process "gpt-process" output-buffer
-                           gpt-python-path gpt-script-path
-                           api-key gpt-model gpt-max-tokens gpt-temperature
-                           api-type-str prompt-file gpt-system-prompt
-                           "None" "None"
-                           (if writer-app-id writer-app-id "None")
-                           (if writer-app-inputs (json-encode (-map 'cl--plist-to-alist writer-app-inputs)) "None")))))
+          (start-process "gpt-process" output-buffer
+                         gpt-python-path gpt-script-path
+                         api-key gpt-model gpt-max-tokens gpt-temperature
+                         api-type-str prompt-file gpt-system-prompt
+                         (if gpt-writerai-graphs-description gpt-writerai-graphs-description "None")
+                         (if gpt-writerai-graph-ids (json-encode gpt-writerai-graph-ids) "None")
+                         (if gpt-writerai-image-ids (json-encode gpt-writerai-image-ids) "None")
+                         (if writer-app-id writer-app-id "None")
+                         (if writer-app-inputs (json-encode (-map 'cl--plist-to-alist writer-app-inputs)) "None"))))
     process))
 
 (defvar gpt-buffer-counter 0
@@ -682,6 +677,23 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
     (setq gpt-api-type (car model-info)
           gpt-model (cdr model-info))
     (message "Switched to %s model: %s" (car model-info) (cdr model-info))))
+
+(defun gpt-writerai-set-image-ids (arg)
+  "If ARG, unset `gpt-writerai-image-ids', otherwise pick some file ids."
+  (interactive "p")
+  (setq gpt-writerai-image-ids
+        (if (equal arg 4)
+            nil
+          (let ((a (mapcar
+                    (lambda (it)
+                      (cons (format "Name: %s status: %s graph-ids: %s"
+                                    (plist-get it :name)
+                                    (plist-get it :status)
+                                    (plist-get it :graph_ids))
+                            (plist-get it :id)
+                            ))
+                    (gpt-writerai-files))))
+            (--map (alist-get it a nil nil 'equal) (completing-read-multiple "Pick images:" a))))))
 
 (define-key gpt-mode-map (kbd "C-c C-c") 'gpt-follow-up)
 (define-key gpt-mode-map (kbd "C-c C-p") 'gpt-toggle-prefix)
