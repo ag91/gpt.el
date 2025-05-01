@@ -471,8 +471,8 @@ PROMPT-FILE is the temporary file containing the prompt."
 (defun gpt-writerai-graphs ()
   "List writerai graphs."
   (let ((url-request-extra-headers
-         `(("Content-Type" . "application/json")
-           ("Authorization" . ,(concat "Bearer " gpt-writerai-key)))))
+         (list (cons "Content-Type" "application/json")
+               (cons "Authorization" (concat "Bearer " gpt-writerai-key)))))
     (with-current-buffer (url-retrieve-synchronously "https://api.writer.com/v1/graphs")
       (goto-char url-http-end-of-headers)
       (delete-region (point-min) (point))
@@ -486,8 +486,8 @@ PROMPT-FILE is the temporary file containing the prompt."
 (defun gpt-writer-app-list ()
   (plist-get
    (let ((url-request-extra-headers
-          `(("Content-Type" . "application/json")
-            ("Authorization" . ,(concat "Bearer " gpt-writerai-key)))))
+          (list (cons "Content-Type" "application/json")
+                (cons "Authorization" (concat "Bearer " gpt-writerai-key)))))
      (with-current-buffer (url-retrieve-synchronously "https://api.writer.com/v1/applications?limit=100")
        (goto-char url-http-end-of-headers)
        (delete-region (point-min) (point))
@@ -546,10 +546,61 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
 
 (defun gpt-writerai-files ()
   "List files available on writer.com. Only first 200."
-  (let ((url-request-extra-headers
+  (let ((file-types (completing-read-multiple "Fyle types" '("txt"
+                                                             "doc"
+                                                             "docx"
+                                                             "ppt"
+                                                             "pptx"
+                                                             "jpg"
+                                                             "png"
+                                                             "eml"
+                                                             "html"
+                                                             "pdf"
+                                                             "srt"
+                                                             "csv"
+                                                             "xls"
+                                                             "xlsx"
+                                                             "mp3"
+                                                             "mp4"
+                                                             "url"
+                                                             "3ga"
+                                                             "8svx"
+                                                             "aac"
+                                                             "ac3"
+                                                             "aif"
+                                                             "aiff"
+                                                             "alac"
+                                                             "amr"
+                                                             "ape"
+                                                             "dss"
+                                                             "flac"
+                                                             "m4a"
+                                                             "m4b"
+                                                             "m4p"
+                                                             "m4r"
+                                                             "mpga"
+                                                             "ogg"
+                                                             "oga"
+                                                             "mogg"
+                                                             "opus"
+                                                             "qcp"
+                                                             "tta"
+                                                             "voc"
+                                                             "wav"
+                                                             "wma"
+                                                             "flv"
+                                                             "webm"
+                                                             "MTS"
+                                                             "M2TS"
+                                                             "mov"
+                                                             "mp2"
+                                                             "m4v"
+                                                             "mxf"
+                                                             )))
+        (url-request-extra-headers
          `(("Content-Type" . "application/json")
            ("Authorization" . ,(concat "Bearer " gpt-writerai-key)))))
-    (with-current-buffer (url-retrieve-synchronously "https://api.writer.com/v1/files?limit=100") ;; TODO exhaust pagination
+    (with-current-buffer (url-retrieve-synchronously (format "https://api.writer.com/v1/files?%slimit=100" (if file-types (concat (string-join file-types ",") "&") ""))) ;; TODO exhaust pagination
       (goto-char url-http-end-of-headers)
       (delete-region (point-min) (point))
       (plist-get
