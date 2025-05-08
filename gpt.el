@@ -276,7 +276,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
                                  gpt-writerai-graph-ids
                                  (yes-or-no-p "Do you want to use your knowledge graph?"))
                         (format "[%s]" (string-join (mapcar (lambda (g) (format "%S" g)) gpt-writerai-graph-ids) ","))))
-        (let ((generated-title (string-trim (buffer-string))))
+        (let ((generated-title (string-replace "\n" " " (string-trim (buffer-string)))))
           (with-current-buffer gpt-buffer
             (rename-buffer (gpt-get-output-buffer-name generated-title))))))))
 
@@ -321,11 +321,12 @@ Use `gpt-script-path' as the executable and pass the other arguments as a list."
   "Get the output buffer name for a given COMMAND."
   (let* ((truncated-command (substring command 0 (min gpt-buffer-name-length (length command))))
          (ellipsis (if (< (length truncated-command) (length command)) "..." "")))
-    (concat "*gpt"
-            "[" (number-to-string gpt-buffer-counter) "]: "
-            truncated-command
-            ellipsis
-            "*")))
+    (string-replace "\n" ""
+                    (concat "*gpt"
+                            "[" (number-to-string gpt-buffer-counter) "]: "
+                            truncated-command
+                            ellipsis
+                            "*"))))
 
 (defun gpt-create-output-buffer (command)
   "Create a buffer to capture the output of the GPT process.
