@@ -230,14 +230,12 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
   (interactive)
   (unless (eq major-mode 'gpt-mode)
     (user-error "Not in a gpt output buffer"))
-  (let ((command (gpt-read-command)))
+  (let ((command (gpt-read-command))
+        (input (gpt-get-visible-buffers-regions)))
     (goto-char (point-max))
     (insert "\n\n")
-    (gpt-insert-command command)
+    (gpt-insert-command (concat (when (and input (not (string-blank-p input))) (format "User:\n\n```\n%s\n```\n\n" input )) command))
     (gpt-run-buffer (current-buffer))))
-
-(defvar gpt-generate-buffer-name-instruction "Create a title with a maximum of 50 chars for the chat above. Say only the title, nothing else. No quotes."
-  "The instruction given to GPT to generate a buffer name.")
 
 (defun gpt-get-api-key (gpt-api-type)
   "Get the secret key  by GPT-API-TYPE."
