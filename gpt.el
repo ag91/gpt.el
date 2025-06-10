@@ -1,4 +1,4 @@
-n;;; gpt.el --- Run instruction-following language models -*- lexical-binding: t; -*-
+;;; gpt.el --- Run instruction-following language models -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2022 Andreas Stuhlmueller
 
