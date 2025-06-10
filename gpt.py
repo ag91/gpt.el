@@ -85,6 +85,7 @@ def parse_args() -> argparse.Namespace:
         help="The 'writerai application identifier.",
     )
     parser.add_argument("inputs", nargs="?", const=None, help="Json input for application.", type=none_or_json)
+    parser.add_argument("response_schema", nargs="?", const=None, help="Json for response schema.", type=none_or_json)
     return parser.parse_args()
 
 
@@ -238,6 +239,7 @@ def stream_writerai_chat_completions(
     graphs_description: Optional[str],
     graph_ids: Optional[List[str]],
     image_ids: Optional[List[str]],
+    response_schema: Optional[str]
 ) -> writerai.Stream:
     """Stream chat completions from the Writerai API."""
     if writerai is None:
@@ -303,6 +305,10 @@ def stream_writerai_chat_completions(
             stream=True,
             tool_choice="auto" if tools else None,
             tools=tools if tools else None,
+            response_format=writerai.types.chat_chat_params.ResponseFormat(
+                type='json_schema',
+                json_schema=response_schema)
+            if response_schema else None
         )
         return chat
     except writerai.APIError as error:
@@ -390,6 +396,7 @@ def main() -> None:
                 args.graphs_description,
                 args.graph_ids,
                 args.image_ids,
+                args.response_schema
             )
         else:
             stream = stream_writerai_app_completions(

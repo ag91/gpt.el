@@ -1,4 +1,4 @@
-;;; gpt.el --- Run instruction-following language models -*- lexical-binding: t; -*-
+n;;; gpt.el --- Run instruction-following language models -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2022 Andreas Stuhlmueller
 
@@ -26,6 +26,7 @@
 
 (require 'savehist)
 (require 'dash)
+(require 's)
 (require 'cl-lib) ;; TODO just for cl--plist-to-alist
 
 (savehist-mode 1)
@@ -152,13 +153,13 @@ have the same meaning as for `completing-read'."
   (interactive)
   (setq gpt-system-prompt (gpt-read-command)))
 
-(defun gpt-run-buffer (buffer &optional writer-app-id writer-app-inputs)
+(defun gpt-run-buffer (buffer &optional writer-app-id writer-app-inputs json-schema)
   "Run GPT command with BUFFER text as input and append output stream to output-buffer."
   (with-current-buffer buffer
     (goto-char (point-max))
     (font-lock-fontify-buffer)
     (let* ((prompt-file (gpt-create-prompt-file buffer))
-           (process (gpt-start-process prompt-file buffer writer-app-id writer-app-inputs))
+           (process (gpt-start-process prompt-file buffer writer-app-id writer-app-inputs json-schema))
            (timer (gpt-start-timer process)))
       (gpt-set-process-sentinel process timer prompt-file)
       (message "GPT: Running command...")
@@ -203,12 +204,28 @@ This can facilitate diff between similar files, for example."
                 contents))))
     (mapconcat 'identity (nreverse contents) "\n\n")))
 
+(defun gpt-dwim-json ()
+  "Like `gpt-dwim' but only for structured output. It tries to generate the schema for the thing at point."
+  (interactive)
+  (let* ((command (gpt-read-command))
+         (output-buffer (gpt-create-output-buffer command))
+         (input (when (region-active-p)
+                  (substring-no-properties (funcall region-extract-function))))
+         (json-schema-command (format "Please respond in JSON only with the json schema. Turn the following into json and then define the JSON schema (assume OpenAI schema parser for the target syntax) \n```%s```. \n\nPossibly, if it makes sense, consider the following request to modify slightly the initial schema (but only if it is still a valid JSON Schema!): ```%s```" input command))
+         (json-schema (gpt-run-command
+                       json-schema-command))
+         (final-json-schema (s-trim (s-replace-all (list (cons "```json" "") (cons "```" "")) json-schema)))
+         (_ (message "requesting json schema with\n\n %s" final-json-schema))
+         )
+    (switch-to-buffer-other-window output-buffer)
+    (gpt-insert-command command)
+    (gpt-run-buffer output-buffer nil nil final-json-schema)))
+
 (defun gpt-dwim (&optional all-buffers)
   "Run user-provided GPT command on region or all visible buffers and print output stream.
 If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible buffers as input. Otherwise, use the current region."
   (interactive "P")
-  (let* ((initial-buffer (current-buffer))
-         (command (gpt-read-command))
+  (let* ((command (gpt-read-command))
          (output-buffer (gpt-create-output-buffer command))
          (input (if all-buffers
                     (gpt-get-visible-buffers-content)
@@ -246,21 +263,17 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
    (t (error "Unsupported type %s" gpt-api-type)))
   )
 
-(defun gpt-generate-buffer-name ()
-  "Update the buffer name by asking GPT to create a title for it."
-  (interactive)
-  (unless (eq major-mode 'gpt-mode)
-    (user-error "Not in a gpt output buffer"))
+(defun gpt-run-command (command)
+  "Run COMMAND and return output."
   (let* ((gpt-buffer (current-buffer))
          (buffer-string (gpt-buffer-string gpt-buffer))
-         (prompt (concat buffer-string "\n\nUser: " gpt-generate-buffer-name-instruction)))
+         (prompt (concat buffer-string "\n\nUser: " command)))
     (with-temp-buffer
       (insert prompt)
       (let ((prompt-file (gpt-create-prompt-file (current-buffer)))
             (api-key (gpt-get-api-key gpt-api-type))
             (api-type-str (symbol-name gpt-api-type)))
         (erase-buffer)
-        (message "Asking GPT to generate buffer name...")
         (call-process gpt-python-path nil t nil
                       gpt-script-path
                       api-key gpt-model
@@ -269,15 +282,10 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
                       api-type-str
                       prompt-file
                       gpt-system-prompt
-                      (when (eq gpt-api-type 'writerai) gpt-writerai-graphs-description)
-                      (when (and (eq gpt-api-type 'writerai)
-                                 gpt-writerai-graph-ids
-                                 (yes-or-no-p "Do you want to use your knowledge graph?"))
-                        (format "[%s]" (string-join (mapcar (lambda (g) (format "%S" g)) gpt-writerai-graph-ids) ","))))
-        (let ((generated-title (string-replace "\n" " " (string-trim (buffer-string)))))
-          (with-current-buffer gpt-buffer
-            (rename-buffer (gpt-get-output-buffer-name generated-title))))))))
-
+                      "None"
+                      "None"
+                      "None")
+        (string-replace "\n" " " (string-trim (buffer-string)))))))
 
 (defun gpt-buffer-string (buffer)
   "Get BUFFER text as string."
@@ -292,7 +300,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
     (message "GPT: Prompt written to %s" temp-file)
     temp-file))
 
-(defun gpt-start-process (prompt-file output-buffer &optional writer-app-id writer-app-inputs)
+(defun gpt-start-process (prompt-file output-buffer &optional writer-app-id writer-app-inputs json-schema)
   "Start the GPT process with the given PROMPT-FILE and OUTPUT-BUFFER.
 Use `gpt-script-path' as the executable and pass the other arguments as a list."
   (let* ((api-key (gpt-get-api-key gpt-api-type))
@@ -306,7 +314,8 @@ Use `gpt-script-path' as the executable and pass the other arguments as a list."
                          (if gpt-writerai-graph-ids (json-encode gpt-writerai-graph-ids) "None")
                          (if gpt-writerai-image-ids (json-encode gpt-writerai-image-ids) "None")
                          (if writer-app-id writer-app-id "None")
-                         (if writer-app-inputs (json-encode (-map 'cl--plist-to-alist writer-app-inputs)) "None"))))
+                         (if writer-app-inputs (json-encode (-map 'cl--plist-to-alist writer-app-inputs)) "None")
+                         (if json-schema json-schema "None"))))
     process))
 
 (defvar gpt-buffer-counter 0
