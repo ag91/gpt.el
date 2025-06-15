@@ -28,6 +28,7 @@
 (require 'dash)
 (require 's)
 (require 'cl-lib) ;; TODO just for cl--plist-to-alist
+(require 'ht)
 
 (savehist-mode 1)
 
@@ -159,7 +160,28 @@ have the same meaning as for `completing-read'."
     (goto-char (point-max))
     (font-lock-fontify-buffer)
     (let* ((prompt-file (gpt-create-prompt-file buffer))
-           (process (gpt-start-process prompt-file buffer writer-app-id writer-app-inputs json-schema))
+           (tools (when (and ;; it seems passing tools confuses the model to not answer content if I don't want to use them
+                         (mcp-hub-get-all-tool)
+                         (yes-or-no-p
+                          "Do you want to enable tools?"))
+                    (ignore-errors
+                      (--map (list
+                              (cons 'type "function")
+                              (cons 'function (list (cons 'name (plist-get it :name))
+                                                    (cons 'description (plist-get it :description))
+                                                    (cons 'parameters (list (cons 'type "object")
+                                                                            (cons 'properties
+                                                                                  (--map (cons (plist-get it :name)
+                                                                                               (-non-nil
+                                                                                                (list
+                                                                                                 (cons 'type (plist-get it :type))
+                                                                                                 (when (plist-get it :items)
+                                                                                                   (cons 'items (plist-get it :items)))
+                                                                                                 (cons 'description (plist-get it :description)))))
+                                                                                         (plist-get it :args)))
+                                                                            (cons 'required (--keep (and (not (plist-get it :optional)) (plist-get it :name)) (plist-get it :args))))))))
+                             (mcp-hub-get-all-tool)))) )
+           (process (gpt-start-process prompt-file buffer writer-app-id writer-app-inputs json-schema tools))
            (timer (gpt-start-timer process)))
       (gpt-set-process-sentinel process timer prompt-file)
       (message "GPT: Running command...")
@@ -300,7 +322,7 @@ If called with a prefix argument (i.e., ALL-BUFFERS is non-nil), use all visible
     (message "GPT: Prompt written to %s" temp-file)
     temp-file))
 
-(defun gpt-start-process (prompt-file output-buffer &optional writer-app-id writer-app-inputs json-schema)
+(defun gpt-start-process (prompt-file output-buffer &optional writer-app-id writer-app-inputs json-schema tools)
   "Start the GPT process with the given PROMPT-FILE and OUTPUT-BUFFER.
 Use `gpt-script-path' as the executable and pass the other arguments as a list."
   (let* ((api-key (gpt-get-api-key gpt-api-type))
@@ -316,6 +338,23 @@ Use `gpt-script-path' as the executable and pass the other arguments as a list."
                          (if writer-app-id writer-app-id "None")
                          (if writer-app-inputs (json-encode (-map 'cl--plist-to-alist writer-app-inputs)) "None")
                          (if json-schema json-schema "None"))))
+    (write-region
+     (json-encode
+      (list
+       :model gpt-model
+       :max-tokens gpt-max-tokens
+       :temparature gpt-temperature
+       :system gpt-system-prompt
+       :graph-description gpt-writerai-graphs-description
+       :graph-ids gpt-writerai-graph-ids
+       :image-ids gpt-writerai-image-ids
+       :app-id writer-app-id
+       :app-inputs writer-app-inputs
+       :function-tools tools
+       :json-schema json-schema
+       ))
+     nil
+     "/tmp/writer-ai-model-inputs.json")
     process))
 
 (defvar gpt-buffer-counter 0
@@ -358,6 +397,44 @@ Otherwise, create a temporary buffer. Use the `gpt-mode' for the output buffer."
                       (message "GPT: Running...")))
                   process))
 
+(defun gpt-handle-tool-calls ()
+  (ignore-errors
+    (-some--> (with-temp-buffer
+                (insert-file-contents "/tmp/tools-arguments.json") ;; TODO rename files
+                ;; cleanup the tool arguments file after reading it
+                (delete-file "/tmp/tools-arguments.json")
+                (buffer-substring-no-properties
+                 (point-min)
+                 (point-max)))
+      (json-parse-string it)
+      (--map (when
+                 ;; TODO will this work with many tools? It depends from the prompt: if not many are used, this is fine.
+                 ;; otherwise we can have a bunch preselected
+                 (yes-or-no-p (format "Do you want to run %s?" (ht-get it "name")))
+               (ht-from-plist (list
+                               :name (ht-get it "name")
+                               :content
+                               (format
+                                "%s"
+
+                                (let ((c (nth 1 (ht-find (lambda (_ v) (s-contains-p (ht-get it "name") (format "%s" v))) mcp-server-connections))))
+                                  (mcp-call-tool c (ht-get it "name")
+                                                 (save-excursion
+                                                   (let ((json-object-type 'plist)
+                                                         (json-array-type 'list))
+                                                     (goto-char (point-min))
+                                                     (json-parse-string (ht-get it "arguments"))))
+                                                 )))
+                               :tool_call_id (ht-get it "call_id")
+                               :role "tool")))
+             it)
+      (-non-nil it)
+      json-encode
+      (or (write-region it nil "/tmp/tool-calls.json") 123)
+      (--find (s-contains-p (format "gpt[%s]" (- gpt-buffer-counter 1)) (buffer-name it)) (buffer-list))
+      (gpt-run-buffer it))
+    ))
+
 (defun gpt-set-process-sentinel (process timer prompt-file)
   "Set a function to run when the PROCESS finishes or fails.
 
@@ -373,7 +450,8 @@ PROMPT-FILE is the temporary file containing the prompt."
                             (if (zerop (process-exit-status proc))
                                 (progn
                                   (delete-file prompt-file)
-                                  (message "GPT: Finished successfully."))
+                                  (message "GPT: Finished successfully.")
+                                  (gpt-handle-tool-calls))
                               (message "GPT: Failed: %s" status))))))
 
 (defface gpt-input-face

@@ -270,12 +270,41 @@ def stream_writerai_chat_completions(
             {"role": role, "content": content}
         )
 
+    tool_calls = []
+    try:
+        with open("/tmp/tool-calls.json", 'r') as file:
+            data = json.load(file)
+            tool_calls = data
+        os.remove("/tmp/tool-calls.json")
+    # except FileNotFoundError:
+    #     print("The file /tmp/tool-calls.json was not found.")
+    # except json.JSONDecodeError as e:
+    #     print(f"Failed to decode JSON: {e}")
+    except Exception:
+        # print(f"An error occurred: {e}")
+        ()
+    for call in tool_calls:
+        messages.append(call)
+
     # print("---")
 
     # print(messages)
 
     try:
         tools = []
+        try:
+            with open("/tmp/writer-ai-model-inputs.json", 'r') as file:
+                data = json.load(file)
+                # print(data["function-tools"])
+                tools = data["function-tools"]
+                os.remove("/tmp/writer-ai-model-inputs.json")
+        # except FileNotFoundError:
+        #     print("The file /tmp/writer-ai-model-inputs.json was not found.")
+        # except json.JSONDecodeError as e:
+        #     print(f"Failed to decode JSON: {e}")
+        except Exception:
+            # print(f"An error occurred: {e}")
+            ()
         if graph_ids is not None and model.startswith("palmyra-x"):
             tools.append(
                 {
@@ -332,6 +361,43 @@ def print_and_collect_completions(stream, api_type: APIType) -> str:
                 print(text, end="", flush=True)
                 completion_text += text
     elif api_type == "writerai":
+        streaming_content = ""
+        function_calls = []
+
+        for chunk in stream:
+            choice = chunk.choices[0]
+
+            if choice.delta:
+                # Check for tool calls
+                if choice.delta.tool_calls:
+                    for tool_call in choice.delta.tool_calls:
+                        if tool_call.id:
+                            # Append an empty dictionary to the function_calls list with the tool call ID
+                            function_calls.append(
+                                {"name": "", "arguments": "", "call_id": tool_call.id}
+                            )
+                        if tool_call.function:
+                            # Append function name and arguments to the last dictionary in the function_calls list
+                            function_calls[-1]["name"] += (
+                                tool_call.function.name
+                                if tool_call.function.name
+                                else ""
+                            )
+                            function_calls[-1]["arguments"] += (
+                                tool_call.function.arguments
+                                if tool_call.function.arguments
+                                else ""
+                            )
+                # Handle non-tool-call content
+                elif choice.delta.content:
+                    text = choice.delta.content
+                    print(text, end="", flush=True)
+                    streaming_content += text
+
+                # A finish reason of tool_calls means the model has finished deciding which tools to call
+                elif choice.finish_reason == "tool_calls":
+                    with open("/tmp/tools-arguments.json", "w") as outfile:
+                        outfile.write(json.dumps(function_calls))
         for chunk in stream:
             # print(chunk)
             try:
