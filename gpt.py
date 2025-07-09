@@ -296,7 +296,7 @@ def stream_writerai_chat_completions(
             with open("/tmp/writer-ai-model-inputs.json", 'r') as file:
                 data = json.load(file)
                 # print(data["function-tools"])
-                tools = data["function-tools"]
+                tools = data["function-tools"] or []
                 os.remove("/tmp/writer-ai-model-inputs.json")
         # except FileNotFoundError:
         #     print("The file /tmp/writer-ai-model-inputs.json was not found.")
@@ -326,6 +326,10 @@ def stream_writerai_chat_completions(
                                       for i, id in enumerate(image_ids)]
                     },
                 })
+        tools.append({
+                "type": "web_search",
+                "function": {},
+            })
         chat = client.chat.chat(
             model=model,
             messages=messages,
