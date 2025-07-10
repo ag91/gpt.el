@@ -161,7 +161,7 @@ have the same meaning as for `completing-read'."
     (font-lock-fontify-buffer)
     (let* ((prompt-file (gpt-create-prompt-file buffer))
            (tools (when (and ;; it seems passing tools confuses the model to not answer content if I don't want to use them
-                         (mcp-hub-get-all-tool)
+                         (ignore-errors (mcp-hub-get-all-tool))
                          (yes-or-no-p
                           "Do you want to enable tools?"))
                     (ignore-errors

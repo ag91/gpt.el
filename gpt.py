@@ -38,13 +38,15 @@ try:
 except ImportError:
     jsonlines = None
 
+
 def none_or_str(value):
-    if value == 'None':
+    if value == "None":
         return None
     return value
 
+
 def none_or_json(value):
-    if value == 'None':
+    if value == "None":
         return None
     return json.loads(value)
 
@@ -75,8 +77,12 @@ def parse_args() -> argparse.Namespace:
         const=None,
         help="The description for the graphs.",
     )
-    parser.add_argument("graph_ids", nargs="?", const=None, help="Graph ids.", type=none_or_json)
-    parser.add_argument("image_ids", nargs="?", const=None, help="Image ids.", type=none_or_json)
+    parser.add_argument(
+        "graph_ids", nargs="?", const=None, help="Graph ids.", type=none_or_json
+    )
+    parser.add_argument(
+        "image_ids", nargs="?", const=None, help="Image ids.", type=none_or_json
+    )
     parser.add_argument(
         "application_id",
         nargs="?",
@@ -84,8 +90,20 @@ def parse_args() -> argparse.Namespace:
         type=none_or_str,
         help="The 'writerai application identifier.",
     )
-    parser.add_argument("inputs", nargs="?", const=None, help="Json input for application.", type=none_or_json)
-    parser.add_argument("response_schema", nargs="?", const=None, help="Json for response schema.", type=none_or_json)
+    parser.add_argument(
+        "inputs",
+        nargs="?",
+        const=None,
+        help="Json input for application.",
+        type=none_or_json,
+    )
+    parser.add_argument(
+        "response_schema",
+        nargs="?",
+        const=None,
+        help="Json for response schema.",
+        type=none_or_json,
+    )
     return parser.parse_args()
 
 
@@ -199,6 +217,7 @@ def stream_anthropic_chat_completions(
 
         sys.exit(1)
 
+
 def stream_writerai_app_completions(
     application_id: str,
     inputs: dict,
@@ -221,13 +240,12 @@ def stream_writerai_app_completions(
 
     try:
         return client.applications.generate_content(
-            application_id=application_id,
-            inputs=inputs,
-            stream=True
+            application_id=application_id, inputs=inputs, stream=True
         )
     except writerai.APIError as error:
         print(f"Error: {error}")
         sys.exit(1)
+
 
 def stream_writerai_chat_completions(
     prompt: str,
@@ -239,7 +257,7 @@ def stream_writerai_chat_completions(
     graphs_description: Optional[str],
     graph_ids: Optional[List[str]],
     image_ids: Optional[List[str]],
-    response_schema: Optional[str]
+    response_schema: Optional[str],
 ) -> writerai.Stream:
     """Stream chat completions from the Writerai API."""
     if writerai is None:
@@ -266,13 +284,11 @@ def stream_writerai_chat_completions(
     for match in matches:
         role = match.group(1).lower()
         content = match.group(2).strip()
-        messages.append(
-            {"role": role, "content": content}
-        )
+        messages.append({"role": role, "content": content})
 
     tool_calls = []
     try:
-        with open("/tmp/tool-calls.json", 'r') as file:
+        with open("/tmp/tool-calls.json", "r") as file:
             data = json.load(file)
             tool_calls = data
         os.remove("/tmp/tool-calls.json")
@@ -293,7 +309,7 @@ def stream_writerai_chat_completions(
     try:
         tools = []
         try:
-            with open("/tmp/writer-ai-model-inputs.json", 'r') as file:
+            with open("/tmp/writer-ai-model-inputs.json", "r") as file:
                 data = json.load(file)
                 # print(data["function-tools"])
                 tools = data["function-tools"] or []
@@ -305,6 +321,7 @@ def stream_writerai_chat_completions(
         except Exception:
             # print(f"An error occurred: {e}")
             ()
+        tools = tools or []
         if graph_ids is not None and model.startswith("palmyra-x"):
             tools.append(
                 {
@@ -315,21 +332,27 @@ def stream_writerai_chat_completions(
                         "graph_ids": graph_ids,
                         "subqueries": False,
                     },
-                })
+                }
+            )
         if image_ids is not None and model.startswith("palmyra-x"):
             tools.append(
                 {
                     "type": "vision",
                     "function": {
                         "model": "palmyra-vision",
-                        "variables": [{'name': str(i), 'file_id': id}
-                                      for i, id in enumerate(image_ids)]
+                        "variables": [
+                            {"name": str(i), "file_id": id}
+                            for i, id in enumerate(image_ids)
+                        ],
                     },
-                })
-        tools.append({
+                }
+            )
+        tools.append(
+            {
                 "type": "web_search",
                 "function": {},
-            })
+            }
+        )
         chat = client.chat.chat(
             model=model,
             messages=messages,
@@ -338,10 +361,13 @@ def stream_writerai_chat_completions(
             stream=True,
             tool_choice="auto" if tools else None,
             tools=tools if tools else None,
-            response_format=writerai.types.chat_chat_params.ResponseFormat(
-                type='json_schema',
-                json_schema=response_schema)
-            if response_schema else None
+            response_format=(
+                writerai.types.chat_chat_params.ResponseFormat(
+                    type="json_schema", json_schema=response_schema
+                )
+                if response_schema
+                else None
+            ),
         )
         return chat
     except writerai.APIError as error:
@@ -466,13 +492,11 @@ def main() -> None:
                 args.graphs_description,
                 args.graph_ids,
                 args.image_ids,
-                args.response_schema
+                args.response_schema,
             )
         else:
             stream = stream_writerai_app_completions(
-                args.application_id,
-                args.inputs,
-                args.api_key
+                args.application_id, args.inputs, args.api_key
             )
     else:
         print(f"Error: Unsupported API type '{args.api_type}'")
